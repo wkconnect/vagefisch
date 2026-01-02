@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1767313927261,
+      "tag": "0000_glorious_black_crow",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1767314047181,
+      "tag": "0001_striped_tenebrous",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1767354707731,
+      "tag": "0002_cuddly_blacklash",
+      "breakpoints": true
+    }
+  ]
+}

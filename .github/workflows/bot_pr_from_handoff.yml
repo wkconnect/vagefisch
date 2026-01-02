@@ -1,0 +1,711 @@
+# =============================================================================
+# GitHub Actions Workflow: PR Bot from Handoff Package
+# =============================================================================
+# This workflow creates a PR from a handoff archive (admin-panel code).
+# Triggered manually via workflow_dispatch.
+#
+# Security Guards:
+# - Only allows changes in admin-panel/**
+# - Blocks .env files and secrets
+# - Validates no forbidden dependencies (manus, aws-sdk, etc.)
+# =============================================================================
+
+name: "Bot: Create PR from Handoff"
+
+on:
+  workflow_dispatch:
+    inputs:
+      handoff_url:
+        description: "URL to download handoff archive (tar.gz)"
+        required: false
+        type: string
+      handoff_base64:
+        description: "Base64-encoded handoff archive (alternative to URL)"
+        required: false
+        type: string
+      pr_title:
+        description: "Pull Request title"
+        required: false
+        default: "feat(admin-panel): update from handoff"
+        type: string
+      pr_description:
+        description: "Pull Request description (markdown)"
+        required: false
+        default: "Automated PR from handoff package"
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  create-pr:# Repository Secrets for PR Bot
+
+This guide explains how to add the required secrets to the `vagefisch` repository for the PR bot workflow.
+
+---
+
+## Required Secrets
+
+| Secret Name | Description | Format |
+|-------------|-------------|--------|
+| `GH_APP_ID` | GitHub App ID | Numeric string (e.g., `123456`) |
+| `GH_APP_PRIVATE_KEY` | GitHub App Private Key | Full PEM content including headers |
+
+> **Note:** `GH_APP_INSTALLATION_ID` is **not required** — the workflow uses `actions/create-github-app-token@v1` which automatically detects the installation.
+
+---
+
+## Step 1: Navigate to Repository Secrets
+
+1. Go to: `https://github.com/wkconnect/vagefisch/settings/secrets/actions`
+2. Or: Repository → **Settings** → **Secrets and variables** → **Actions**
+
+---
+
+## Step 2: Add GH_APP_ID
+
+### 2.1 Create New Secret
+
+1. Click **"New repository secret"**
+2. Fill in the fields:
+
+| Field | Value |
+|-------|-------|
+| **Name** | `GH_APP_ID` |
+| **Secret** | Your App ID (e.g., `123456`) |
+
+3. Click **"Add secret"**
+
+### 2.2 Verify
+
+The secret should appear in the list as `GH_APP_ID` with "Updated just now".
+
+---
+
+## Step 3: Add GH_APP_PRIVATE_KEY
+
+### 3.1 Prepare the Private Key
+
+Open your downloaded `.pem` file and copy the **entire content**, including:
+- `-----BEGIN RSA PRIVATE KEY-----`
+- All the base64-encoded lines
+- `-----END RSA PRIVATE KEY-----`
+
+**Example format:**
+```
+-----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEA1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN
+OPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890+/ABCDEFGHIJKLMNOP
+... (many more lines) ...
+QRSTUVWXYZabcdefghijklmnopqrstuvwxyz1234567890+/==
+-----END RSA PRIVATE KEY-----
+```
+
+### 3.2 Create New Secret
+
+1. Click **"New repository secret"**
+2. Fill in the fields:
+
+| Field | Value |
+|-------|-------|
+| **Name** | `GH_APP_PRIVATE_KEY` |
+| **Secret** | Paste the entire PEM content |
+
+3. Click **"Add secret"**
+
+### 3.3 Verify
+
+The secret should appear in the list as `GH_APP_PRIVATE_KEY`.
+
+---
+
+## Step 4: Verify All Secrets
+
+After adding both secrets, your secrets list should show:
+
+```
+Repository secrets
+
+GH_APP_ID           Updated <timestamp>
+GH_APP_PRIVATE_KEY  Updated <timestamp>
+```
+
+---
+
+## Step 5: Test the Workflow
+
+### 5.1 Trigger Workflow Manually
+
+1. Go to: `https://github.com/wkconnect/vagefisch/actions`
+2. Click on **"Bot: Create PR from Handoff"** workflow
+3. Click **"Run workflow"**
+4. Fill in the inputs:
+
+| Input | Value |
+|-------|-------|
+| **Branch** | `main` |
+| **handoff_url** | URL to your handoff archive |
+| **pr_title** | `test: verify bot workflow` |
+| **pr_description** | `Testing bot configuration` |
+
+5. Click **"Run workflow"**
+
+### 5.2 Check Workflow Results
+
+1. Click on the running workflow
+2. Verify each step completes successfully
+3. If successful, a new PR will be created
+
+### 5.3 Common Issues
+
+**"Bad credentials" error:**
+- Verify `GH_APP_ID` is correct
+- Verify `GH_APP_PRIVATE_KEY` includes the full PEM content
+- Check that the private key has no extra whitespace
+
+**"Resource not accessible" error:**
+- Verify the GitHub App is installed on `vagefisch` repository
+- Check app permissions (Contents: RW, Pull requests: RW)
+
+---
+
+## Security Notes
+
+### What GitHub Secrets Provide
+
+- ✅ Encrypted at rest
+- ✅ Not visible in logs (automatically masked)
+- ✅ Only accessible by workflows in this repository
+- ✅ Cannot be viewed after creation (only updated/deleted)
+
+### Best Practices
+
+1. **Never log secrets:** GitHub automatically masks them, but avoid `echo $SECRET`
+2. **Rotate periodically:** Regenerate the private key every 6-12 months
+3. **Audit access:** Review who has admin access to repository settings
+4. **Monitor usage:** Check workflow runs for unexpected activity
+
+---
+
+## Updating Secrets
+
+To update a secret:
+
+1. Go to repository secrets page
+2. Click on the secret name
+3. Click **"Update"**
+4. Enter the new value
+5. Click **"Update secret"**
+
+> **Note:** You cannot view the current value — only replace it.
+
+---
+
+## Removing Secrets
+
+To remove a secret:
+
+1. Go to repository secrets page
+2. Click on the secret name
+3. Click **"Remove"**
+4. Confirm deletion
+
+⚠️ **Warning:** Removing secrets will break the workflow until new secrets are added.
+
+---
+
+## Quick Reference
+
+### Secrets Summary
+
+```yaml
+# In workflow file, secrets are accessed as:
+secrets.GH_APP_ID          # → "123456"
+secrets.GH_APP_PRIVATE_KEY # → "-----BEGIN RSA PRIVATE KEY-----\n..."
+```
+
+### Workflow Usage
+
+```yaml
+- name: Generate GitHub App Token
+  uses: actions/create-github-app-token@v1
+  with:
+    app-id: ${{ secrets.GH_APP_ID }}
+    private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+```
+
+---
+
+## Checklist
+
+Before running the workflow, verify:
+
+- [ ] GitHub App created (see `BOT_SETUP_GITHUB_APP.md`)
+- [ ] App installed on `vagefisch` repository
+- [ ] `GH_APP_ID` secret added
+- [ ] `GH_APP_PRIVATE_KEY` secret added
+- [ ] Workflow file exists at `.github/workflows/bot_pr_from_handoff.yml`
+
+# GitHub App Setup for PR Bot
+
+This guide explains how to create and configure a GitHub App for the automated PR bot.
+
+---
+
+## Overview
+
+The PR bot uses a GitHub App to:
+- Push branches to the repository
+- Create Pull Requests automatically
+- Authenticate without personal access tokens
+
+**Why GitHub App instead of PAT?**
+- More secure (scoped permissions)
+- No personal account dependency
+- Better audit trail
+- Can be managed by organization
+
+---
+
+## Step 1: Create GitHub App
+
+### 1.1 Navigate to GitHub App Settings
+
+**For Organization-owned App (Recommended):**
+1. Go to: `https://github.com/organizations/wkconnect/settings/apps`
+2. Click **"New GitHub App"**
+
+**For Personal App:**
+1. Go to: `https://github.com/settings/apps`
+2. Click **"New GitHub App"**
+
+### 1.2 Fill in Basic Information
+
+| Field | Value |
+|-------|-------|
+| **GitHub App name** | `vagefisch-pr-bot` |
+| **Description** | `Automated PR bot for Vagefisch repository` |
+| **Homepage URL** | `https://github.com/wkconnect/vagefisch` |
+
+### 1.3 Configure Webhook (Optional)
+
+For this use case, webhooks are **not required**.
+
+| Field | Value |
+|-------|-------|
+| **Active** | ❌ Unchecked |
+| **Webhook URL** | Leave empty |
+
+### 1.4 Set Repository Permissions
+
+Navigate to **"Permissions & events"** → **"Repository permissions"**
+
+| Permission | Access Level | Purpose |
+|------------|--------------|---------|
+| **Contents** | Read and write | Push branches, commit files |
+| **Metadata** | Read-only | Access repository info (auto-selected) |
+| **Pull requests** | Read and write | Create and manage PRs |
+
+⚠️ **Important:** Only select these three permissions. Do not add unnecessary permissions.
+
+### 1.5 Configure Where App Can Be Installed
+
+| Option | Selection |
+|--------|-----------|
+| **Where can this GitHub App be installed?** | ✅ Only on this account |
+
+This restricts the app to your organization only.
+
+### 1.6 Create the App
+
+1. Click **"Create GitHub App"**
+2. You will be redirected to the app settings page
+3. **Note the App ID** displayed at the top (e.g., `123456`)
+
+---
+
+## Step 2: Generate Private Key
+
+### 2.1 Navigate to Private Keys Section
+
+1. On the app settings page, scroll down to **"Private keys"**
+2. Click **"Generate a private key"**
+
+### 2.2 Download and Secure the Key
+
+1. A `.pem` file will be automatically downloaded
+2. **Store this file securely** — it cannot be downloaded again
+3. The file content looks like:
+
+```
+-----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEA...
+...
+-----END RSA PRIVATE KEY-----
+```
+
+⚠️ **Security Warning:**
+- Never commit this key to Git
+- Never share this key in chat or email
+- Store in a password manager or secure vault
+
+---
+
+## Step 3: Install App on Repository
+
+### 3.1 Navigate to Install Page
+
+1. On the app settings page, click **"Install App"** in the left sidebar
+2. Or go to: `https://github.com/apps/vagefisch-pr-bot/installations/new`
+
+### 3.2 Select Installation Scope
+
+1. Click **"Install"** next to your organization (`wkconnect`)
+2. Select **"Only select repositories"**
+3. Choose **`vagefisch`** from the dropdown
+4. Click **"Install"**
+
+### 3.3 Note the Installation ID
+
+After installation, you'll be redirected to a URL like:
+```
+https://github.com/organizations/wkconnect/settings/installations/12345678
+```
+
+The number at the end (`12345678`) is your **Installation ID**.
+
+**Alternative way to find Installation ID:**
+1. Go to: `https://github.com/organizations/wkconnect/settings/installations`
+2. Click on `vagefisch-pr-bot`
+3. The URL will contain the Installation ID
+
+---
+
+## Step 4: Verify Installation
+
+### 4.1 Check App Permissions
+
+1. Go to repository: `https://github.com/wkconnect/vagefisch`
+2. Click **Settings** → **Integrations** → **GitHub Apps**
+3. Verify `vagefisch-pr-bot` is listed with correct permissions
+
+### 4.2 Test API Access (Optional)
+
+You can verify the app works using the GitHub API:
+
+```bash
+# Generate JWT token (requires jwt-cli or similar)
+# Then test with:
+curl -H "Authorization: Bearer <JWT_TOKEN>" \
+     -H "Accept: application/vnd.github+json" \
+     https://api.github.com/app
+```
+
+---
+
+## Summary: Required Values
+
+After completing this guide, you should have:
+
+| Value | Where to Find | Example |
+|-------|---------------|---------|
+| **App ID** | App settings page header | `123456` |
+| **Installation ID** | Installation URL | `12345678` |
+| **Private Key** | Downloaded .pem file | `-----BEGIN RSA PRIVATE KEY-----...` |
+
+These values will be added as repository secrets (see `BOT_SECRETS.md`).
+
+---
+
+## Troubleshooting
+
+### "Resource not accessible by integration"
+
+**Cause:** Missing permissions or app not installed on repository.
+
+**Solution:**
+1. Verify app is installed on `vagefisch` repository
+2. Check permissions include Contents (RW) and Pull requests (RW)
+3. Re-install the app if needed
+
+### "Bad credentials"
+
+**Cause:** Invalid or expired token.
+
+**Solution:**
+1. Verify App ID is correct
+2. Verify Private Key is complete (including BEGIN/END lines)
+3. Regenerate private key if needed
+
+### "Not Found" when creating PR
+
+**Cause:** App doesn't have access to the repository.
+
+**Solution:**
+1. Go to app installation settings
+2. Ensure `vagefisch` is in the selected repositories list
+
+---
+
+## Security Best Practices
+
+1. **Minimal Permissions:** Only grant required permissions
+2. **Single Repository:** Install only on `vagefisch`, not organization-wide
+3. **Key Rotation:** Regenerate private key periodically
+4. **Audit Logs:** Monitor app activity in organization audit log
+5. **Access Review:** Periodically review who has access to app settings
+
+    name: Create PR from Handoff
+    runs-on: ubuntu-latest
+    
+    steps:
+      # =========================================================================
+      # Step 1: Generate GitHub App Token
+      # =========================================================================
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: vagefisch
+
+      # =========================================================================
+      # Step 2: Checkout Repository
+      # =========================================================================
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      # =========================================================================
+      # Step 3: Validate Inputs
+      # =========================================================================
+      - name: Validate inputs
+        run: |
+          if [[ -z "${{ inputs.handoff_url }}" && -z "${{ inputs.handoff_base64 }}" ]]; then
+            echo "❌ ERROR: Either handoff_url or handoff_base64 must be provided"
+            exit 1
+          fi
+          echo "✅ Input validation passed"
+
+      # =========================================================================
+      # Step 4: Download/Decode Handoff Archive
+      # =========================================================================
+      - name: Download handoff archive
+        if: inputs.handoff_url != ''
+        run: |
+          echo "📥 Downloading handoff from URL..."
+          curl -fsSL "${{ inputs.handoff_url }}" -o handoff.tar.gz
+          echo "✅ Download complete"
+
+      - name: Decode base64 handoff
+        if: inputs.handoff_base64 != ''
+        run: |
+          echo "📦 Decoding base64 handoff..."
+          echo "${{ inputs.handoff_base64 }}" | base64 -d > handoff.tar.gz
+          echo "✅ Decode complete"
+
+      # =========================================================================
+      # Step 5: Create Feature Branch
+      # =========================================================================
+      - name: Create feature branch
+        id: branch
+        run: |
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          BRANCH_NAME="bot/${TIMESTAMP}-admin-panel"
+          git checkout -b "$BRANCH_NAME"
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          echo "✅ Created branch: $BRANCH_NAME"
+
+      # =========================================================================
+      # Step 6: Extract Handoff Archive
+      # =========================================================================
+      - name: Extract handoff archive
+        run: |
+          echo "📦 Extracting handoff archive..."
+          
+          # Remove existing admin-panel if exists
+          rm -rf admin-panel/
+          
+          # Extract archive
+          tar -xzvf handoff.tar.gz
+          
+          # Verify admin-panel directory exists
+          if [[ ! -d "admin-panel" ]]; then
+            echo "❌ ERROR: admin-panel/ directory not found in archive"
+            exit 1
+          fi
+          
+          # Cleanup
+          rm -f handoff.tar.gz
+          
+          echo "✅ Extraction complete"
+
+      # =========================================================================
+      # Step 7: SECURITY GUARD - Validate Changes
+      # =========================================================================
+      - name: "🔒 Security Guard: Validate changes"
+        run: |
+          echo "🔒 Running security validation..."
+          ERRORS=0
+          
+          # Guard 1: Check for .env files (only .env.example allowed)
+          echo "📋 Checking for .env files..."
+          if find admin-panel -name ".env" -o -name ".env.local" -o -name ".env.production" | grep -q .; then
+            echo "❌ BLOCKED: Found .env files (only .env.example allowed)"
+            find admin-panel -name ".env*" ! -name ".env.example"
+            ERRORS=$((ERRORS + 1))
+          else
+            echo "✅ No forbidden .env files found"
+          fi
+          
+          # Guard 2: Check for forbidden dependencies
+          echo "📋 Checking for forbidden dependencies..."
+          if grep -RniE "manus|MANUS|OAUTH_SERVER|VITE_OAUTH|aws-sdk|manus\.space" admin-panel/ 2>/dev/null; then
+            echo "❌ BLOCKED: Found forbidden dependencies (manus, aws-sdk, etc.)"
+            ERRORS=$((ERRORS + 1))
+          else
+            echo "✅ No forbidden dependencies found"
+          fi
+          
+          # Guard 3: Check for hardcoded secrets patterns
+          echo "📋 Checking for hardcoded secrets..."
+          SECRET_PATTERNS="(password|secret|api_key|apikey|token|credential).*=.*['\"][^'\"]{8,}['\"]"
+          if grep -RniE "$SECRET_PATTERNS" admin-panel/ --include="*.ts" --include="*.tsx" --include="*.js" --include="*.json" 2>/dev/null | grep -v "\.example" | grep -v "placeholder" | grep -v "YOUR_"; then
+            echo "⚠️ WARNING: Potential hardcoded secrets detected (review manually)"
+            # Don't fail on this, just warn
+          else
+            echo "✅ No obvious hardcoded secrets found"
+          fi
+          
+          # Guard 4: Ensure changes are only in admin-panel/
+          echo "📋 Checking change scope..."
+          git add -A
+          CHANGED_FILES=$(git diff --cached --name-only)
+          NON_ADMIN_CHANGES=$(echo "$CHANGED_FILES" | grep -v "^admin-panel/" | grep -v "^$" || true)
+          
+          if [[ -n "$NON_ADMIN_CHANGES" ]]; then
+            echo "❌ BLOCKED: Changes detected outside admin-panel/:"
+            echo "$NON_ADMIN_CHANGES"
+            ERRORS=$((ERRORS + 1))
+          else
+            echo "✅ All changes are within admin-panel/"
+          fi
+          
+          # Final verdict
+          echo ""
+          echo "=========================================="
+          if [[ $ERRORS -gt 0 ]]; then
+            echo "❌ SECURITY VALIDATION FAILED ($ERRORS errors)"
+            echo "PR will NOT be created."
+            exit 1
+          else
+            echo "✅ SECURITY VALIDATION PASSED"
+            echo "Proceeding with PR creation..."
+          fi
+
+      # =========================================================================
+      # Step 8: Commit Changes
+      # =========================================================================
+      - name: Commit changes
+        run: |
+          git config user.name "vagefisch-bot[bot]"
+          git config user.email "vagefisch-bot[bot]@users.noreply.github.com"
+          
+          git add admin-panel/
+          
+          # Check if there are changes to commit
+          if git diff --cached --quiet; then
+            echo "⚠️ No changes to commit"
+            echo "has_changes=false" >> $GITHUB_ENV
+          else
+            git commit -m "${{ inputs.pr_title }}
+
+          Automated commit from handoff package.
+          
+          - Source: workflow_dispatch
+          - Branch: ${{ steps.branch.outputs.branch_name }}
+          - Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            
+            echo "has_changes=true" >> $GITHUB_ENV
+            echo "✅ Changes committed"
+          fi
+
+      # =========================================================================
+      # Step 9: Push Branch
+      # =========================================================================
+      - name: Push branch
+        if: env.has_changes == 'true'
+        run: |
+          git push -u origin ${{ steps.branch.outputs.branch_name }}
+          echo "✅ Branch pushed to origin"
+
+      # =========================================================================
+      # Step 10: Create Pull Request
+      # =========================================================================
+      - name: Create Pull Request
+        if: env.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          PR_BODY="${{ inputs.pr_description }}
+          
+          ---
+          
+          ## 🤖 Automated PR
+          
+          This PR was created automatically by the handoff bot.
+          
+          **Branch:** \`${{ steps.branch.outputs.branch_name }}\`
+          **Triggered by:** @${{ github.actor }}
+          **Workflow run:** [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          
+          ## ✅ Security Checks Passed
+          
+          - [x] No .env files (only .env.example)
+          - [x] No forbidden dependencies (manus, aws-sdk)
+          - [x] Changes only in admin-panel/
+          - [x] No obvious hardcoded secrets
+          
+          ## 📋 Review Checklist
+          
+          - [ ] Code review completed
+          - [ ] Changes are as expected
+          - [ ] Ready to merge"
+          
+          gh pr create \
+            --base main \
+            --head "${{ steps.branch.outputs.branch_name }}" \
+            --title "${{ inputs.pr_title }}" \
+            --body "$PR_BODY"
+          
+          echo "✅ Pull Request created"
+
+      # =========================================================================
+      # Step 11: Summary
+      # =========================================================================
+      - name: Summary
+        if: always()
+        run: |
+          echo "## 📊 Workflow Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [[ "${{ env.has_changes }}" == "true" ]]; then
+            echo "✅ **PR Created Successfully**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- Branch: \`${{ steps.branch.outputs.branch_name }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- Title: ${{ inputs.pr_title }}" >> $GITHUB_STEP_SUMMARY
+          elif [[ "${{ env.has_changes }}" == "false" ]]; then
+            echo "⚠️ **No Changes Detected**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The handoff archive contained no new changes." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Workflow Failed**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Check the logs for details." >> $GITHUB_STEP_SUMMARY
+          fi

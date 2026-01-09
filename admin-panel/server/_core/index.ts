@@ -7,6 +7,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { ensureDefaultAdmin } from "./auth";
+import oneboxApiRoutes from "../api/onebox";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -40,6 +41,9 @@ async function startServer() {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
   
+  // OneBox REST API (Bearer Token auth)
+  app.use("/api", oneboxApiRoutes);
+  
   // tRPC API
   app.use(
     "/api/trpc",
@@ -55,19 +59,19 @@ async function startServer() {
   } else {
     serveStatic(app);
   }
-
+  
   // Ensure default admin exists on first run
   await ensureDefaultAdmin();
-
+  
   const preferredPort = parseInt(process.env.PORT || "3000");
   const port = await findAvailablePort(preferredPort);
-
   if (port !== preferredPort) {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
-
+  
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    console.log(`OneBox API available at http://localhost:${port}/api/weighing/*`);
   });
 }
 

@@ -150,6 +150,18 @@ router.post('/weighing/start', async (req: Request, res: Response) => {
       });
     }
     
+    // Check for existing active session on this scale
+    for (const [existingSessionId, existingSession] of activeSessions.entries()) {
+      if (existingSession.scaleDbId === scale.id && 
+          (existingSession.status === "STARTED" || existingSession.status === "RUNNING")) {
+        return res.status(409).json({
+          error: "SCALE_BUSY",
+          message: `Scale "" is already in use by session ""`,
+          existing_session_id: existingSessionId
+        });
+      }
+    }
+
     if (scale.status === 'offline') {
       return res.status(503).json({
         error: 'SCALE_OFFLINE',

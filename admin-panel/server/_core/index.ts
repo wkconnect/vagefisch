@@ -41,10 +41,7 @@ async function startServer() {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
   
-  // OneBox REST API (Bearer Token auth)
-  app.use("/api", oneboxApiRoutes);
-  
-  // tRPC API
+  // tRPC API (session-based auth via cookies)
   app.use(
     "/api/trpc",
     createExpressMiddleware({
@@ -52,6 +49,9 @@ async function startServer() {
       createContext,
     })
   );
+  
+  // OneBox REST API (Bearer Token auth) - separate path to avoid conflicts
+  app.use("/api/v1", oneboxApiRoutes);
   
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
@@ -71,7 +71,7 @@ async function startServer() {
   
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
-    console.log(`OneBox API available at http://localhost:${port}/api/weighing/*`);
+    console.log(`OneBox API available at http://localhost:${port}/api/v1/weighing/*`);
   });
 }
 

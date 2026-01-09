@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
 import { getLoginUrl } from "./const";
+import { AuthProvider } from "./_core/hooks/useAuth";
 import "./index.css";
 
 const queryClient = new QueryClient();
@@ -13,11 +14,13 @@ const queryClient = new QueryClient();
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
   if (typeof window === "undefined") return;
-
+  
   const isUnauthorized = error.message === UNAUTHED_ERR_MSG;
-
   if (!isUnauthorized) return;
-
+  
+  // Don't redirect if already on login page to prevent infinite loop
+  if (window.location.pathname === "/login") return;
+  
   window.location.href = getLoginUrl();
 };
 
@@ -55,7 +58,9 @@ const trpcClient = trpc.createClient({
 createRoot(document.getElementById("root")!).render(
   <trpc.Provider client={trpcClient} queryClient={queryClient}>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <AuthProvider>
+        <App />
+      </AuthProvider>
     </QueryClientProvider>
   </trpc.Provider>
 );

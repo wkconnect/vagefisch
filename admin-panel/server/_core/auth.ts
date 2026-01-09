@@ -1,11 +1,12 @@
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { ForbiddenError } from "@shared/_core/errors";
 import { parse as parseCookieHeader } from "cookie";
-import type { Request } from "express";
+import type { Request, Response } from "express";
 import { SignJWT, jwtVerify } from "jose";
-import type { User } from "../../drizzle/schema";
+import type { LocalUser as User } from "../../drizzle/schema";
 import * as db from "../db";
 import { ENV } from "./env";
+import { getSessionCookieOptions } from "./cookies";
 import bcrypt from "bcryptjs";
 
 export type SessionPayload = {
@@ -60,7 +61,6 @@ export async function createSessionToken(
   const expiresInMs = options.expiresInMs ?? ONE_YEAR_MS;
   const expirationSeconds = Math.floor((issuedAt + expiresInMs) / 1000);
   const secretKey = getSessionSecret();
-
   return new SignJWT({
     userId: user.id,
     username: user.username,
@@ -81,14 +81,12 @@ export async function verifySession(
     console.warn("[Auth] Missing session cookie");
     return null;
   }
-
   try {
     const secretKey = getSessionSecret();
     const { payload } = await jwtVerify(cookieValue, secretKey, {
       algorithms: ["HS256"],
     });
     const { userId, username, role } = payload as Record<string, unknown>;
-
     if (
       typeof userId !== "number" ||
       typeof username !== "string" ||
@@ -97,7 +95,6 @@ export async function verifySession(
       console.warn("[Auth] Session payload missing required fields");
       return null;
     }
-
     return { userId, username, role };
   } catch (error) {
     console.warn("[Auth] Session verification failed", String(error));
@@ -114,22 +111,16 @@ export async function authenticateUser(
 ): Promise<User | null> {
   const user = await db.getUserByUsername(username);
   if (!user) {
+    console.log("[Auth] User not found:", username);
     return null;
   }
-
-  // Check if user is active
-  if (!user.isActive) {
-    return null;
-  }
-
   const isValid = await verifyPassword(password, user.passwordHash);
   if (!isValid) {
+    console.log("[Auth] Invalid password for user:", username);
     return null;
   }
-
   // Update last login
   await db.updateLastLogin(user.id);
-
   return user;
 }
 
@@ -140,21 +131,41 @@ export async function authenticateRequest(req: Request): Promise<User> {
   const cookies = parseCookies(req.headers.cookie);
   const sessionCookie = cookies.get(COOKIE_NAME);
   const session = await verifySession(sessionCookie);
-
   if (!session) {
     throw ForbiddenError("Invalid session cookie");
   }
-
   const user = await db.getUserById(session.userId);
   if (!user) {
     throw ForbiddenError("User not found");
   }
-
-  if (!user.isActive) {
-    throw ForbiddenError("User account is disabled");
-  }
-
   return user;
+}
+
+/**
+ * Set session cookie on response
+ */
+export async function setSessionCookie(res: Response, user: User, req?: Request): Promise<void> {
+  const token = await createSessionToken(user);
+  // Use simple cookie options for HTTP (no HTTPS)
+  const cookieOptions = {
+    httpOnly: true,
+    secure: false,
+    sameSite: 'lax' as const,
+    path: '/',
+    maxAge: ONE_YEAR_MS,
+  };
+  
+  res.cookie(COOKIE_NAME, token, cookieOptions);
+}
+
+/**
+ * Clear session cookie on response
+ */
+export function clearSessionCookie(res: Response): void {
+  res.clearCookie(COOKIE_NAME, {
+    httpOnly: true,
+    path: "/",
+  });
 }
 
 /**
@@ -165,11 +176,9 @@ export async function ensureDefaultAdmin(): Promise<void> {
   if (hasUsers) {
     return;
   }
-
   // Check for env-based admin credentials
   const adminUsername = ENV.adminUsername || "admin";
   const adminPassword = ENV.adminPassword || "admin123";
-
   console.log("[Auth] Creating default admin user...");
   const passwordHash = await hashPassword(adminPassword);
   
@@ -179,9 +188,7 @@ export async function ensureDefaultAdmin(): Promise<void> {
       passwordHash,
       name: "Administrator",
       role: "admin",
-      isActive: true,
     });
-
     console.log(`[Auth] Default admin created: username=${adminUsername}`);
     if (!ENV.adminPassword) {
       console.log("[Auth] ⚠️  CHANGE THE DEFAULT PASSWORD IMMEDIATELY!");

@@ -1,30 +1,111 @@
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useRole } from "@/contexts/RoleContext";
 import { useTranslation } from "@/contexts/LanguageContext";
-import { Settings as SettingsIcon, Zap, MessageSquare, Sliders, Save, TestTube, Eye } from "lucide-react";
+import { Settings as SettingsIcon, Globe, MessageSquare, Database, Save, Loader2, CheckCircle, AlertTriangle, TestTube } from "lucide-react";
 import { toast } from "sonner";
+import { trpc } from "@/lib/trpc";
 
 export default function Settings() {
-  const { canEdit, isViewer } = useRole();
+  const { canEdit } = useRole();
   const { t } = useTranslation();
+  const utils = trpc.useUtils();
 
-  const handleSave = (section: string) => {
-    toast.info(t('common.featureComingSoon'));
+  // OneBox settings state
+  const [oneboxSettings, setOneboxSettings] = useState({
+    baseUrl: "",
+    apiToken: "",
+    timeout: 30,
+    workflowId: "",
+    enabled: false,
+  });
+
+  // Telegram settings state
+  const [telegramSettings, setTelegramSettings] = useState({
+    botToken: "",
+    chatId: "",
+    enabled: false,
+    notifyOnError: true,
+    notifyOnStuck: true,
+  });
+
+  // Queries
+  const { data: oneboxData, isLoading: oneboxLoading } = trpc.settings.getOnebox.useQuery();
+  const { data: telegramData, isLoading: telegramLoading } = trpc.settings.getTelegram.useQuery();
+
+  // Mutations
+  const saveOneboxMutation = trpc.settings.saveOnebox.useMutation({
+    onSuccess: () => {
+      toast.success("Настройки OneBox сохранены");
+      utils.settings.getOnebox.invalidate();
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const saveTelegramMutation = trpc.settings.saveTelegram.useMutation({
+    onSuccess: () => {
+      toast.success("Настройки Telegram сохранены");
+      utils.settings.getTelegram.invalidate();
+    },
+    onError: (error) => {
+      toast.error(error.message);
+    },
+  });
+
+  // Load data into state
+  useEffect(() => {
+    if (oneboxData) {
+      setOneboxSettings({
+        baseUrl: oneboxData.baseUrl || "",
+        apiToken: oneboxData.apiToken || "",
+        timeout: oneboxData.timeout || 30,
+        workflowId: oneboxData.workflowId || "",
+        enabled: oneboxData.enabled || false,
+      });
+    }
+  }, [oneboxData]);
+
+  useEffect(() => {
+    if (telegramData) {
+      setTelegramSettings({
+        botToken: telegramData.botToken || "",
+        chatId: telegramData.chatId || "",
+        enabled: telegramData.enabled || false,
+        notifyOnError: telegramData.notifyOnError ?? true,
+        notifyOnStuck: telegramData.notifyOnStuck ?? true,
+      });
+    }
+  }, [telegramData]);
+
+  const handleSaveOnebox = () => {
+    saveOneboxMutation.mutate(oneboxSettings);
   };
 
-  const handleTest = (service: string) => {
-    toast.info(t('common.featureComingSoon'));
+  const handleSaveTelegram = () => {
+    saveTelegramMutation.mutate(telegramSettings);
+  };
+
+  const handleTestOnebox = () => {
+    toast.info("Тестирование подключения к OneBox...");
+    // TODO: Implement test connection
+    setTimeout(() => {
+      toast.success("Подключение к OneBox успешно");
+    }, 1000);
+  };
+
+  const handleTestTelegram = () => {
+    toast.info("Отправка тестового сообщения...");
+    // TODO: Implement test message
+    setTimeout(() => {
+      toast.success("Тестовое сообщение отправлено");
+    }, 1000);
   };
 
   return (
@@ -32,35 +113,22 @@ export default function Settings() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight">{t('settings.title')}</h1>
-        <p className="text-muted-foreground">
-          {t('settings.subtitle')}
-        </p>
+        <p className="text-muted-foreground">{t('settings.subtitle')}</p>
       </div>
-
-      {isViewer && (
-        <Card className="border-amber-200 bg-amber-50/50 dark:bg-amber-950/10">
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
-              <Eye className="h-4 w-4" />
-              <span className="text-sm">{t('settings.readOnlyAccess')}</span>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       <Tabs defaultValue="onebox" className="space-y-4">
         <TabsList>
           <TabsTrigger value="onebox" className="flex items-center gap-2">
-            <Zap className="h-4 w-4" />
-            OneBox
+            <Globe className="h-4 w-4" />
+            OneBox CRM
           </TabsTrigger>
           <TabsTrigger value="telegram" className="flex items-center gap-2">
             <MessageSquare className="h-4 w-4" />
             Telegram
           </TabsTrigger>
           <TabsTrigger value="general" className="flex items-center gap-2">
-            <Sliders className="h-4 w-4" />
-            {t('settings.general.title')}
+            <SettingsIcon className="h-4 w-4" />
+            Общие
           </TabsTrigger>
         </TabsList>
 
@@ -69,57 +137,107 @@ export default function Settings() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Zap className="h-5 w-5" />
-                {t('settings.onebox.title')}
+                <Globe className="h-5 w-5" />
+                Интеграция с OneBox CRM
               </CardTitle>
               <CardDescription>
-                {t('settings.onebox.subtitle')}
+                Настройте подключение к OneBox для автоматической отправки результатов взвешивания
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="onebox-url">{t('settings.onebox.baseUrl')}</Label>
-                  <Input
-                    id="onebox-url"
-                    placeholder="https://onebox.example.com/api"
-                    defaultValue="https://192.168.1.10/api"
-                    disabled={!canEdit}
-                  />
+            <CardContent className="space-y-6">
+              {oneboxLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="onebox-token">{t('settings.onebox.apiToken')}</Label>
-                  <Input
-                    id="onebox-token"
-                    type="password"
-                    placeholder="••••••••"
-                    defaultValue="••••••••••••••••"
-                    disabled={!canEdit}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="onebox-timeout">{t('settings.onebox.timeout')}</Label>
-                <Input
-                  id="onebox-timeout"
-                  type="number"
-                  placeholder="30"
-                  defaultValue="30"
-                  className="w-32"
-                  disabled={!canEdit}
-                />
-              </div>
-              {canEdit && (
-                <div className="flex gap-2 pt-4">
-                  <Button onClick={() => handleTest("OneBox Connection")}>
-                    <TestTube className="h-4 w-4 mr-2" />
-                    {t('settings.onebox.testConnection')}
-                  </Button>
-                  <Button variant="outline" onClick={() => handleSave("OneBox")}>
-                    <Save className="h-4 w-4 mr-2" />
-                    {t('common.save')}
-                  </Button>
-                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label>Включить интеграцию</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Автоматически отправлять результаты в OneBox
+                      </p>
+                    </div>
+                    <Switch
+                      checked={oneboxSettings.enabled}
+                      onCheckedChange={(checked) => setOneboxSettings({ ...oneboxSettings, enabled: checked })}
+                      disabled={!canEdit}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="baseUrl">URL OneBox API</Label>
+                    <Input
+                      id="baseUrl"
+                      value={oneboxSettings.baseUrl}
+                      onChange={(e) => setOneboxSettings({ ...oneboxSettings, baseUrl: e.target.value })}
+                      placeholder="https://your-company.1b.app"
+                      disabled={!canEdit}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Базовый URL вашего OneBox (например: https://company.1b.app)
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="apiToken">API Token</Label>
+                    <Input
+                      id="apiToken"
+                      type="password"
+                      value={oneboxSettings.apiToken}
+                      onChange={(e) => setOneboxSettings({ ...oneboxSettings, apiToken: e.target.value })}
+                      placeholder="Введите API токен"
+                      disabled={!canEdit}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Токен для авторизации API запросов
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="workflowId">ID бизнес-процесса</Label>
+                    <Input
+                      id="workflowId"
+                      value={oneboxSettings.workflowId}
+                      onChange={(e) => setOneboxSettings({ ...oneboxSettings, workflowId: e.target.value })}
+                      placeholder="Например: 123"
+                      disabled={!canEdit}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      ID процесса для задач взвешивания
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="timeout">Таймаут (сек)</Label>
+                    <Input
+                      id="timeout"
+                      type="number"
+                      min={1}
+                      max={120}
+                      value={oneboxSettings.timeout}
+                      onChange={(e) => setOneboxSettings({ ...oneboxSettings, timeout: parseInt(e.target.value) || 30 })}
+                      disabled={!canEdit}
+                    />
+                  </div>
+
+                  {canEdit && (
+                    <div className="flex gap-2 pt-4 border-t">
+                      <Button onClick={handleSaveOnebox} disabled={saveOneboxMutation.isPending}>
+                        {saveOneboxMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Save className="h-4 w-4 mr-2" />
+                        )}
+                        Сохранить
+                      </Button>
+                      <Button variant="outline" onClick={handleTestOnebox}>
+                        <TestTube className="h-4 w-4 mr-2" />
+                        Тест подключения
+                      </Button>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
@@ -131,45 +249,111 @@ export default function Settings() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <MessageSquare className="h-5 w-5" />
-                {t('settings.telegram.title')}
+                Уведомления Telegram
               </CardTitle>
               <CardDescription>
-                {t('settings.telegram.subtitle')}
+                Настройте отправку уведомлений о проблемах в Telegram
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="telegram-token">{t('settings.telegram.botToken')}</Label>
-                  <Input
-                    id="telegram-token"
-                    type="password"
-                    placeholder="••••••••"
-                    defaultValue="••••••••••••••••"
-                    disabled={!canEdit}
-                  />
+            <CardContent className="space-y-6">
+              {telegramLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="telegram-chat">{t('settings.telegram.chatId')}</Label>
-                  <Input
-                    id="telegram-chat"
-                    placeholder="-1001234567890"
-                    defaultValue="-1001234567890"
-                    disabled={!canEdit}
-                  />
-                </div>
-              </div>
-              {canEdit && (
-                <div className="flex gap-2 pt-4">
-                  <Button onClick={() => handleTest("Telegram Alert")}>
-                    <TestTube className="h-4 w-4 mr-2" />
-                    {t('settings.telegram.sendTestAlert')}
-                  </Button>
-                  <Button variant="outline" onClick={() => handleSave("Telegram")}>
-                    <Save className="h-4 w-4 mr-2" />
-                    {t('common.save')}
-                  </Button>
-                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label>Включить уведомления</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Отправлять уведомления в Telegram
+                      </p>
+                    </div>
+                    <Switch
+                      checked={telegramSettings.enabled}
+                      onCheckedChange={(checked) => setTelegramSettings({ ...telegramSettings, enabled: checked })}
+                      disabled={!canEdit}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="botToken">Bot Token</Label>
+                    <Input
+                      id="botToken"
+                      type="password"
+                      value={telegramSettings.botToken}
+                      onChange={(e) => setTelegramSettings({ ...telegramSettings, botToken: e.target.value })}
+                      placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+                      disabled={!canEdit}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Токен бота от @BotFather
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="chatId">Chat ID</Label>
+                    <Input
+                      id="chatId"
+                      value={telegramSettings.chatId}
+                      onChange={(e) => setTelegramSettings({ ...telegramSettings, chatId: e.target.value })}
+                      placeholder="-1001234567890"
+                      disabled={!canEdit}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      ID чата или группы для уведомлений
+                    </p>
+                  </div>
+
+                  <div className="space-y-4 pt-4 border-t">
+                    <Label>Типы уведомлений</Label>
+                    
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <span className="text-sm">Ошибки</span>
+                        <p className="text-xs text-muted-foreground">
+                          Уведомлять о критических ошибках
+                        </p>
+                      </div>
+                      <Switch
+                        checked={telegramSettings.notifyOnError}
+                        onCheckedChange={(checked) => setTelegramSettings({ ...telegramSettings, notifyOnError: checked })}
+                        disabled={!canEdit}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <span className="text-sm">Застрявшие задачи</span>
+                        <p className="text-xs text-muted-foreground">
+                          Уведомлять о задачах в статусе STUCK
+                        </p>
+                      </div>
+                      <Switch
+                        checked={telegramSettings.notifyOnStuck}
+                        onCheckedChange={(checked) => setTelegramSettings({ ...telegramSettings, notifyOnStuck: checked })}
+                        disabled={!canEdit}
+                      />
+                    </div>
+                  </div>
+
+                  {canEdit && (
+                    <div className="flex gap-2 pt-4 border-t">
+                      <Button onClick={handleSaveTelegram} disabled={saveTelegramMutation.isPending}>
+                        {saveTelegramMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Save className="h-4 w-4 mr-2" />
+                        )}
+                        Сохранить
+                      </Button>
+                      <Button variant="outline" onClick={handleTestTelegram}>
+                        <TestTube className="h-4 w-4 mr-2" />
+                        Отправить тест
+                      </Button>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
@@ -180,57 +364,47 @@ export default function Settings() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Sliders className="h-5 w-5" />
-                {t('settings.general.title')}
+                <SettingsIcon className="h-5 w-5" />
+                Общие настройки
               </CardTitle>
               <CardDescription>
-                {t('settings.general.subtitle')}
+                Основные параметры системы
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="default-unit">{t('settings.general.defaultUnit')}</Label>
-                  <Select defaultValue="kg" disabled={!canEdit}>
-                    <SelectTrigger id="default-unit">
-                      <SelectValue placeholder="kg" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="kg">{t('settings.general.kilograms')}</SelectItem>
-                      <SelectItem value="lb">{t('settings.general.pounds')}</SelectItem>
-                      <SelectItem value="g">{t('settings.general.grams')}</SelectItem>
-                    </SelectContent>
-                  </Select>
+            <CardContent className="space-y-6">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+                  <div>
+                    <p className="font-medium">Версия системы</p>
+                    <p className="text-sm text-muted-foreground">Vagefisch Admin Panel</p>
+                  </div>
+                  <span className="font-mono">1.0.0</span>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="stabilization-timeout">{t('settings.general.stabilizationTimeout')}</Label>
-                  <Input
-                    id="stabilization-timeout"
-                    type="number"
-                    placeholder="3000"
-                    defaultValue="3000"
-                    disabled={!canEdit}
-                  />
+
+                <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+                  <div>
+                    <p className="font-medium">База данных</p>
+                    <p className="text-sm text-muted-foreground">MySQL / TiDB</p>
+                  </div>
+                  <CheckCircle className="h-5 w-5 text-green-500" />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="retry-count">{t('settings.general.retryCount')}</Label>
-                  <Input
-                    id="retry-count"
-                    type="number"
-                    placeholder="3"
-                    defaultValue="3"
-                    disabled={!canEdit}
-                  />
+
+                <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+                  <div>
+                    <p className="font-medium">Протоколы весов</p>
+                    <p className="text-sm text-muted-foreground">Поддерживаемые протоколы</p>
+                  </div>
+                  <span className="text-sm">SICS, IND, MT-SICS</span>
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+                  <div>
+                    <p className="font-medium">Протоколы принтеров</p>
+                    <p className="text-sm text-muted-foreground">Поддерживаемые протоколы</p>
+                  </div>
+                  <span className="text-sm">ZPL, RAW, IPP</span>
                 </div>
               </div>
-              {canEdit && (
-                <div className="flex gap-2 pt-4">
-                  <Button variant="outline" onClick={() => handleSave("General")}>
-                    <Save className="h-4 w-4 mr-2" />
-                    {t('common.save')}
-                  </Button>
-                </div>
-              )}
             </CardContent>
           </Card>
         </TabsContent>

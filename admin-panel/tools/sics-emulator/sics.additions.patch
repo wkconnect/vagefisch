@@ -1,0 +1,124 @@
+--- sics.original.ts	2026-07-03 14:14:40
++++ sics.patched.ts	2026-07-03 14:16:26
+@@ -536,14 +536,121 @@
+   await clearDisplay(config);
+   
+   return { maxChars, model };
++}
++
++/**
++ * Inquiry/preset of tare weight value
++ * SICS Command: TA (inquiry) or TA <value> <unit> (preset a known tare)
++ */
++export async function presetTare(config: ScaleConfig, value?: number, unit: string = 'kg'): Promise<CommandResult> {
++  const cmd = value !== undefined ? `TA ${value} ${unit}` : 'TA';
++  const result = await sendCommand(config, cmd);
++  if (!result.success) return result;
++  const response = result.response || '';
++  if (response.includes(' A')) return { success: true, response };
++  if (response.includes(' I')) return { success: false, error: 'Tare not executable (scale busy or in motion)', errorCode: 'SICS_I', response };
++  if (response.includes(' L')) return { success: false, error: 'Wrong or missing tare parameter', errorCode: 'SICS_L', response };
++  return { success: true, response };
+ }
+ 
++/**
++ * Clear tare value
++ * SICS Command: TAC
++ */
++export async function clearTare(config: ScaleConfig): Promise<CommandResult> {
++  const result = await sendCommand(config, 'TAC');
++  if (!result.success) return result;
++  const response = result.response || '';
++  if (response.includes('TAC A')) return { success: true, response };
++  if (response.includes('TAC I')) return { success: false, error: 'Clear tare not executable', errorCode: 'SICS_I', response };
++  return { success: true, response };
++}
++
++export interface NetInfoResult {
++  success: boolean;
++  weight?: number;
++  isStable?: boolean;
++  belowMinWeigh?: boolean;
++  overload?: boolean;
++  underload?: boolean;
++  rawResponse?: string;
++  error?: string;
++  errorCode?: string;
++}
++
++/**
++ * Inquiry of current net information WITH status in a single call.
++ * SICS Command: SIS -> "SIS A <status> \"value\" unit dec step app info"
++ * status: 0=stable, 1=dynamic, 2=stable<MinWeigh, 3=dyn<MinWeigh, 4=overload, 5=underload, 6=error
++ * Preferred over SI when you need weight + stability + over/underload atomically.
++ */
++export async function sendNetInfo(config: ScaleConfig): Promise<NetInfoResult> {
++  const result = await sendCommand(config, 'SIS');
++  if (!result.success) return { success: false, error: result.error, errorCode: result.errorCode };
++  const resp = (result.response || '').trim();
++  const m = resp.match(/SIS\s+A\s+(\d)\s+"([^"]*)"/);
++  if (!m) return { success: false, error: `Unable to parse SIS: ${resp}`, errorCode: 'PARSE_ERROR', rawResponse: resp };
++  const status = Number(m[1]);
++  const weight = parseFloat(m[2]);
++  return {
++    success: status <= 3,
++    weight: isNaN(weight) ? undefined : weight,
++    isStable: status === 0 || status === 2,
++    belowMinWeigh: status === 2 || status === 3,
++    overload: status === 4,
++    underload: status === 5,
++    rawResponse: resp,
++  };
++}
++
++/**
++ * Stream weight values continuously (SICS Command: SIR - send immediately and repeat).
++ * Opens a persistent socket, sends SIR, and invokes onWeight for every value the
++ * scale pushes, until stop() is called. Use for a live weight display instead of
++ * polling SI. Any other send command / hardware break cancels SIR scale-side;
++ * we send a plain 'S' then close the socket.
++ */
++export function streamWeights(
++  config: ScaleConfig,
++  onWeight: (w: WeightResult) => void,
++  onError?: (err: string) => void,
++): { stop: () => void } {
++  const socket = new net.Socket();
++  let buffer = '';
++  let stopped = false;
++  const stop = () => {
++    if (stopped) return;
++    stopped = true;
++    try { socket.write('S\r\n'); } catch { /* ignore */ }
++    socket.destroy();
++  };
++  socket.on('connect', () => socket.write('SIR\r\n'));
++  socket.on('data', (data) => {
++    buffer += data.toString();
++    let idx: number;
++    while ((idx = buffer.indexOf('\n')) >= 0) {
++      const line = buffer.slice(0, idx).trim();
++      buffer = buffer.slice(idx + 1);
++      if (line) onWeight(parseSicsResponse(line));
++    }
++  });
++  socket.on('error', (err: NodeJS.ErrnoException) => onError?.(err.message));
++  socket.connect(config.port, config.ip);
++  return { stop };
++}
++
+ export default {
+   readWeightImmediate,
+   readWeightStable,
+   waitForStableWeight,
+   zeroScale,
+   tareScale,
++  presetTare,
++  setTare: presetTare, // alias: queue-worker.ts calls sicsDriver.setTare(config, value)
++  clearTare,
++  sendCommand, // exposed for raw-command route steps in queue-worker.ts
++  sendNetInfo,
++  streamWeights,
+   displayText,
+   displayPayload,
+   displayPayloadWithRotation,

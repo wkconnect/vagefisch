@@ -1,0 +1,246 @@
+<div class="custom-modal modal fade js-modal-vagefisch{|$id|}" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title font-weight-bold">{|$translate_vzveshivanie|}</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+
+                <div class="row">
+                    <div class="col-md-9" style="border-right: 1px solid #dee2e6">
+                        <div class="row mb-3">
+                            <div class="col-md-12" style="font-size: 24px; text-align: center;"><strong>{|$productname|}</strong></div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6" style="font-size: 16px;">{|$translate_articul|}:&nbsp;<strong>{|$productarticul|}</strong></div>
+                            <div class="col-md-6" style="font-size: 16px;">{|$translate_zakazannoe_kolichestvo|}: <strong>{|$productcount|}{|if $productunit|}&nbsp;{|$productunit|}{|/if|}</strong></div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6" style="font-size: 16px;">{|$translate_ispolzuemie_vesi|}:&nbsp;{|$defaultScaleID|}</div>
+                            <div class="col-md-6" style="font-size: 16px;">{|$translate_status|}:&nbsp;<span class="js-vagefisch-status">{|$productweightstatus|}</span></div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="row" style="align-items: center; height: 100%;">
+                            <div class="col-md-12" style="text-align: center;">
+                                <span class="js-vagefisch-weight" title="{|$translate_stabilno|}" style="font-size: 50px;color: #28a745;">{|$productweight|}</span>
+                                &nbsp;
+                                <span class="js-vagefisch-unit" style="font-size: 24px">{|$productunit|}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer justify-content-center">
+                <a class="btn btn-icon bi bi-play-circle" onclick="vagefischStart('{|$id|}');" title="{|$translate_nachat_sessiyu_vzveshivaniya_dlya_pozitsii_zakaza|}"></a>
+                <a class="btn btn-icon bi bi-speedometer2" onclick="vagefischLive('{|$id|}');" title="{|$translate_poluchit_tekushchiy_ves_v_realnom_vremeni|}"></a>
+                <a class="btn btn-icon bi bi-check-circle" onclick="vagefischConfirm('{|$id|}');" title="{|$translate_podtverdit_i_zafiksirovat_itogoviy_ves|}"></a>
+                <a class="btn btn-icon bi bi-x-circle" onclick="vagefischCancel('{|$id|}');" title="{|$translate_otmenit_sessiyu_vzveshivaniya|}"></a>
+                <a class="btn btn-icon bi bi-arrow-repeat" onclick="vagefischTare('{|$id|}');" title="{|$translate_ustanovit_taru|}"></a>
+                <a class="btn btn-icon bi bi-slash-circle" onclick="vagefischZero('{|$id|}');" title="{|$translate_obnulit_vesi|}"></a>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+    var session_id = '';
+    // Fix: сбросить липкий статус при открытии + отменить сессию при закрытии крестиком
+    $j(document).off('shown.bs.modal','.js-modal-vagefisch{|$id|}').on('shown.bs.modal','.js-modal-vagefisch{|$id|}',function(){
+        session_id='';
+        var $s=$j(this).find('.js-vagefisch-status');
+        if($s.text()==='RUNNING'||$s.text()==='STARTED')$s.text('NEW');
+    });
+    $j(document).off('hidden.bs.modal','.js-modal-vagefisch{|$id|}').on('hidden.bs.modal','.js-modal-vagefisch{|$id|}',function(){
+        if(session_id){$j.ajax({url:'/admin/block/order/product/vagefisch/popup/',data:{ajaxaction:'cancel',orderproductid:'{|$id|}',sessionid:session_id}});session_id='';}
+    });
+    var autoFilterTimeout = '';
+
+    function vagefischStart(id) {
+        $j.ajax({
+            url: '/admin/block/order/product/vagefisch/popup/',
+            async: true,
+            dataType: "json",
+            data: {
+                ajaxaction: 'start',
+                orderproductid: id
+            },
+            success: function (json) {
+                if (json.status == 'STARTED') {
+                    session_id = json.session_id;
+                    $j('.js-modal-vagefisch'+id).find('.js-vagefisch-status').text(json.status);
+                    autoFilterTimeout = setTimeout(function () {
+                        vagefischLive(id);
+                    }, 1000);
+                }
+            },
+            error: function (xhr) {
+                const json = xhr.responseJSON;
+                if (json.error) {
+                    messagePush(json.error, 'error');
+                } else {
+                    messagePush('{|$translate_proizoshla_neizvestnaya_oshibka|}', 'error');
+                }
+            }
+        });
+    }
+
+    function vagefischLive(id) {
+        $j.ajax({
+            url: '/admin/block/order/product/vagefisch/popup/',
+            async: true,
+            dataType: "json",
+            data: {
+                ajaxaction: 'live',
+                orderproductid: id,
+                sessionid: session_id
+            },
+            success: function (json) {
+                $j('.js-modal-vagefisch'+id).find('.js-vagefisch-status').text(json.status);
+
+                var $weightSpan = $j('.js-modal-vagefisch'+id).find('.js-vagefisch-weight');
+                $weightSpan.text(json.weight);
+                if (json.stable) {
+                    $weightSpan.css('color', '#28a745');
+                    $weightSpan.prop('title', '{|$translate_stabilno|}');
+                } else {
+                    $weightSpan.css('color', '#ffba15');
+                    $weightSpan.prop('title', '{|$translate_ne_stabilno|}');
+                }
+
+                $j('.js-modal-vagefisch'+id).find('.js-vagefisch-unit').text(json.unit);
+            },
+            error: function (xhr) {
+                const json = xhr.responseJSON;
+                if (json.error) {
+                    messagePush(json.error, 'error');
+                } else {
+                    messagePush('{|$translate_proizoshla_neizvestnaya_oshibka|}', 'error');
+                }
+            }
+        });
+    }
+
+    function vagefischConfirm(id) {
+        $j.ajax({
+            url: '/admin/block/order/product/vagefisch/popup/',
+            async: true,
+            dataType: "json",
+            data: {
+                ajaxaction: 'confirm',
+                orderproductid: id,
+                sessionid: session_id
+            },
+            success: function (json) {
+                if (json.status == "CONFIRMED") {
+                    $j('.js-modal-vagefisch'+id).find('.js-vagefisch-status').text(json.status);
+                    if (autoFilterTimeout) {
+                        clearTimeout(autoFilterTimeout);
+                    }
+                    messagePush('{|$translate_izmeneniya_sohraneni|}.', 'success');
+                    onebox.productJExel.updateAllTables();
+                    $j('.js-modal-vagefisch'+id).modal('hide');
+                }
+            },
+            error: function (xhr) {
+                const json = xhr.responseJSON;
+                if (json.error) {
+                    messagePush(json.error, 'error');
+                } else {
+                    messagePush('{|$translate_proizoshla_neizvestnaya_oshibka|}', 'error');
+                }
+            }
+        });
+    }
+
+    function vagefischCancel(id) {
+        $j.ajax({
+            url: '/admin/block/order/product/vagefisch/popup/',
+            async: true,
+            dataType: "json",
+            data: {
+                ajaxaction: 'cancel',
+                orderproductid: id,
+                sessionid: session_id
+            },
+            success: function (json) {
+                if (json.status == 'CANCELLED') {
+                    if (autoFilterTimeout) {
+                        clearTimeout(autoFilterTimeout);
+                    }
+                    $j('.js-modal-vagefisch'+id).find('.js-vagefisch-status').text(json.status);
+                    $j('.js-modal-vagefisch'+id).modal('hide');
+                }
+            },
+            error: function (xhr) {
+                const json = xhr.responseJSON;
+                if (json.error) {
+                    messagePush(json.error, 'error');
+                } else {
+                    messagePush('{|$translate_proizoshla_neizvestnaya_oshibka|}', 'error');
+                }
+            }
+        });
+    }
+
+    function vagefischTare(id) {
+        $j.ajax({
+            url: '/admin/block/order/product/vagefisch/popup/',
+            async: true,
+            dataType: "json",
+            data: {
+                ajaxaction: 'tare',
+                orderproductid: id,
+                sessionid: session_id
+            },
+            success: function (json) {
+                if (json.success) {
+                    var $weightSpan = $j('.js-modal-vagefisch'+id).find('.js-vagefisch-weight');
+                    $weightSpan.text(json.value);
+                    $weightSpan.css('color', '#28a745');
+                    $weightSpan.prop('title', '{|$translate_stabilno|}');
+                }
+            },
+            error: function (xhr) {
+                const json = xhr.responseJSON;
+                if (json.error) {
+                    messagePush(json.error, 'error');
+                } else {
+                    messagePush('{|$translate_proizoshla_neizvestnaya_oshibka|}', 'error');
+                }
+            }
+        });
+    }
+
+    function vagefischZero(id) {
+        $j.ajax({
+            url: '/admin/block/order/product/vagefisch/popup/',
+            async: true,
+            dataType: "json",
+            data: {
+                ajaxaction: 'zero',
+                orderproductid: id,
+                sessionid: session_id
+            },
+            success: function (json) {
+                if (json.success) {
+                    var $weightSpan = $j('.js-modal-vagefisch'+id).find('.js-vagefisch-weight');
+                    $weightSpan.text('0');
+                    $weightSpan.css('color', '#ffba15');
+                    $weightSpan.prop('title', '{|$translate_stabilno|}');
+                }
+            },
+            error: function (xhr) {
+                const json = xhr.responseJSON;
+                if (json.error) {
+                    messagePush(json.error, 'error');
+                } else {
+                    messagePush('{|$translate_proizoshla_neizvestnaya_oshibka|}', 'error');
+                }
+            }
+        });
+    }
+</script>

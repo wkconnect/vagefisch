@@ -10,6 +10,7 @@
  */
 
 import net from 'net';
+import { resolveDisplay, productFrames, fitAscii, type FrameInput } from './fish-display';
 
 export interface DisplayConfig {
   maxCharsPerLine: number;  // Default: 12 for ICS689
@@ -71,10 +72,15 @@ export function buildDisplayLines(payload: DisplayPayload, config: DisplayConfig
   const lines: string[] = [];
   const maxLen = config.maxCharsPerLine;
   
-  // Line 1: Product name (truncated if needed)
+  // Line 1: Product name — translated RU->DE and forced ASCII (ICS689 cannot show Cyrillic).
   if (payload.productName) {
-    const name = payload.productName.substring(0, maxLen);
+    const resolved = resolveDisplay(payload.productName);
+    const name = resolved.matched
+      ? fitAscii(resolved.de, maxLen)
+      : (fitAscii(payload.productName, maxLen) || '?');
     lines.push(name);
+    // Secondary cut frame (Koepfe/Rogen/Filet/...) when applicable
+    if (resolved.cut) lines.push(fitAscii(resolved.cut, maxLen));
   }
   
   // Line 2: SKU (abbreviated)
@@ -115,11 +121,13 @@ export function buildDisplayLines(payload: DisplayPayload, config: DisplayConfig
 export function formatDisplayText(payload: DisplayPayload, config: DisplayConfig = DEFAULT_DISPLAY_CONFIG): string {
   const maxLen = config.maxCharsPerLine;
   
-  // For single line display, prioritize product name
+  // For single line display, prioritize product name — translated RU->DE, ASCII-only.
   if (payload.productName) {
-    return payload.productName.substring(0, maxLen);
+    const resolved = resolveDisplay(payload.productName);
+    if (resolved.matched) return fitAscii(resolved.de, maxLen);
+    return fitAscii(payload.productName, maxLen) || '?';
   }
-  
+
   return '';
 }
 
@@ -452,6 +460,71 @@ export async function clearDisplay(config: ScaleConfig): Promise<CommandResult> 
   return await sendCommand(config, 'DW');
 }
 
+export interface DisplayProductOptions {
+  rotations?: number;                 // full passes over the frame set (default 2)
+  frameMs?: number;                   // ms each frame stays on screen (default display.rotationIntervalMs)
+  returnToWeightDisplay?: boolean;    // DW at the end so native live weight shows (default true)
+  streamWeight?: boolean;             // ALSO open a concurrent SIR live-weight stream (default false)
+  onWeight?: (w: WeightResult) => void;
+}
+
+export interface DisplayProductResult {
+  success: boolean;
+  framesSent: string[];
+  errors: string[];
+  stopWeightStream?: () => void;      // present only when streamWeight was enabled
+}
+
+/**
+ * "Product selected" -> show the product on the scale's remote display.
+ *
+ * Translates the (Russian) product name to a short German frame set (see fish-display.ts),
+ * rotates the frames [#SKU, DE-name, cut, target] on the 12-char display, then returns to
+ * the native weight display so the operator sees the live weight while placing the goods.
+ *
+ * Live weight: pass streamWeight:true + onWeight to also push SIR values to a UI. NOTE: this
+ * opens a SECOND TCP connection to the scale. Some MT scales accept only ONE client on the
+ * SICS port; if the model is single-connection, keep streamWeight:false and stream weight in a
+ * separate phase (after the frames, on the native display). Default is off for safety.
+ */
+export async function displayProduct(
+  config: ScaleConfig,
+  payload: FrameInput,
+  options: DisplayProductOptions = {}
+): Promise<DisplayProductResult> {
+  const displayConfig = config.display || DEFAULT_DISPLAY_CONFIG;
+  const frames = productFrames(payload, displayConfig.maxCharsPerLine);
+  const rotations = options.rotations ?? 2;
+  const frameMs = options.frameMs ?? displayConfig.rotationIntervalMs ?? 2000;
+  const framesSent: string[] = [];
+  const errors: string[] = [];
+
+  if (frames.length === 0) {
+    return { success: false, framesSent, errors: ['No displayable frames for product'] };
+  }
+
+  let stopWeightStream: (() => void) | undefined;
+  if (options.streamWeight && options.onWeight) {
+    const stream = streamWeights(config, options.onWeight, (err) => errors.push(`weight stream: ${err}`));
+    stopWeightStream = stream.stop;
+  }
+
+  for (let r = 0; r < rotations; r++) {
+    for (const frame of frames) {
+      const result = await displayText(config, frame);
+      if (result.success) framesSent.push(frame);
+      else errors.push(`Failed to display "${frame}": ${result.error}`);
+      await new Promise((resolve) => setTimeout(resolve, frameMs));
+    }
+  }
+
+  if (options.returnToWeightDisplay !== false) {
+    await clearDisplay(config);
+  }
+
+  return { success: errors.length === 0, framesSent, errors, stopWeightStream };
+}
+
 /**
  * Get scale identification
  * SICS Command: I0 (Identification)
@@ -653,6 +726,7 @@ export default {
   streamWeights,
   displayText,
   displayPayload,
+  displayProduct,
   displayPayloadWithRotation,
   buildDisplayLines,
   formatDisplayText,

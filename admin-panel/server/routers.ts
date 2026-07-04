@@ -405,7 +405,47 @@ export const appRouter = router({
         };
         
         const result = await sicsDriver.displayText(config, input.text);
-        
+
+        return result;
+      }),
+
+    // "Product selected" -> translate RU product name to DE and rotate frames on the display.
+    displayProduct: operatorProcedure
+      .input(z.object({
+        id: z.number(),
+        name: z.string().min(1).max(120),
+        sku: z.string().max(32).optional(),
+        targetWeight: z.number().optional(),
+        unit: z.string().max(8).optional(),
+        rotations: z.number().min(1).max(5).optional(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const scale = await db.getScaleById(input.id);
+        if (!scale) throw new TRPCError({ code: 'NOT_FOUND', message: 'Scale not found' });
+
+        const config = {
+          ip: scale.ip,
+          port: scale.port,
+          protocol: scale.protocol as 'SICS' | 'IND' | 'MT-SICS' | 'CUSTOM',
+          displayCommand: scale.displayCommand || 'D',
+          timeoutMs: 5000,
+        };
+
+        const result = await sicsDriver.displayProduct(config, {
+          name: input.name,
+          sku: input.sku,
+          targetWeight: input.targetWeight,
+          unit: input.unit,
+        }, { rotations: input.rotations ?? 2 });
+
+        await logEvent(
+          result.success ? 'INFO' : 'ERROR',
+          'SCALE',
+          `Display product "${input.name}" -> [${result.framesSent.join(', ')}]`,
+          'scale', String(input.id),
+          { user: ctx.user.username, frames: result.framesSent, errors: result.errors },
+        );
+
         return result;
       }),
   }),

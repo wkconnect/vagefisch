@@ -150,15 +150,15 @@ router.post('/weighing/start', async (req: Request, res: Response) => {
       });
     }
     
-    // Check for existing active session on this scale
+    // Take over any existing session on this scale.
+    // Single scale = single operator station, so an active session here is always stale/abandoned,
+    // never a genuine concurrency conflict. Cancel it and proceed instead of returning SCALE_BUSY.
     for (const [existingSessionId, existingSession] of activeSessions.entries()) {
-      if (existingSession.scaleDbId === scale.id && 
+      if (existingSession.scaleDbId === scale.id &&
           (existingSession.status === "STARTED" || existingSession.status === "RUNNING")) {
-        return res.status(409).json({
-          error: "SCALE_BUSY",
-          message: `Scale "" is already in use by session ""`,
-          existing_session_id: existingSessionId
-        });
+        existingSession.status = "CANCELLED";
+        activeSessions.delete(existingSessionId);
+        await logEvent("INFO", "API", "Took over scale from previous session " + existingSessionId, "scale", String(scale.id));
       }
     }
 
